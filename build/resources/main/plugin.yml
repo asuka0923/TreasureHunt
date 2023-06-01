@@ -1,0 +1,6 @@
+name: TreasureHunt
+version: '1.0-SNAPSHOT'
+main: plugin.treasurehunt.Main
+api-version: 1.19
+commands:
+  gameStart:

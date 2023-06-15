@@ -1,16 +1,12 @@
 package plugin.treasurehunt.command;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
+
+import org.apache.ibatis.session.SqlSession;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -30,9 +26,10 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
-import org.springframework.beans.factory.annotation.Autowired;
-import plugin.treasurehunt.data.PlayerScore;
-import plugin.treasurehunt.repository.PlayerScoreRepository;
+import plugin.treasurehunt.PlayerScoreData;
+import plugin.treasurehunt.data.ExecutingPlayer;
+import plugin.treasurehunt.mapper.PlayerScoreMapper;
+import plugin.treasurehunt.mapper.data.PlayerScore;
 
 public class GameStartCommand extends BaseCommand implements Listener {
     private List<int[]> chestIntLocation;
@@ -48,39 +45,19 @@ public class GameStartCommand extends BaseCommand implements Listener {
     public static final String HARD ="hard";
     public static final String NONE ="none";
     public static final String LIST ="list";
+    private PlayerScoreData playerScoreData = new PlayerScoreData();
 
     public String difficulty;
     public long startTime;
-    private PlayerScore nowPlayerScore = new PlayerScore();
-    private List<PlayerScore> playerScoreList = new ArrayList<>();
-    @Autowired
-    private PlayerScoreRepository playerScoreRepository;
+    private ExecutingPlayer nowExecutingPlayer = new ExecutingPlayer();
+    private List<ExecutingPlayer> executingPlayerList = new ArrayList<>();
 
     @Override
     public boolean onExecutePlayerCommand(Player player, @NotNull Command command, @NotNull String label, String[] args) {
         if(args.length == 1 && LIST.equals(args[0])){
-            String url =  "jdbc:mysql://localhost:3306/spigot_plugin";
-            String user = "root";
-            String password = "pass";
-            String sql = "select * from player_score;";
-
-            try(Connection con = DriverManager.getConnection(url, user, password);
-                Statement statement = con.createStatement();
-                ResultSet resultset = statement.executeQuery(sql)) {
-                while (resultset.next()) {
-                    int id = resultset.getInt("id");
-                    Timestamp timestamp = resultset.getTimestamp("date");
-                    int score = resultset.getInt("score");
-                    int time = resultset.getInt("time");
-                    String difficulty = resultset.getString("difficulty");
-                    player.sendMessage(id + "|" + timestamp + "|" + score + "|" + time + "|" + difficulty);
-                }
-            }
-                catch (SQLException e){
-                    e.printStackTrace();
-                }
+            sendPlayerScoreList(player);
             return false;
-            }
+        }
         difficulty = getDifficulty(player,args);
         if (difficulty.equals(NONE)) return false;
         hasChest = true;
@@ -88,33 +65,44 @@ public class GameStartCommand extends BaseCommand implements Listener {
         gameplay(player, difficulty);
         return true;
     }
+
+    private void sendPlayerScoreList(Player player) {
+        List<PlayerScore> playerScoreList = playerScoreData.selectList();
+        for(PlayerScore playerScore : playerScoreList){
+            player.sendMessage("｜"
+                    + playerScore.getId() + "｜"
+                    + playerScore.getDate() + "｜"
+                    + playerScore.getScore() + "｜"
+                    + playerScore.getTime() + "｜"
+                    + playerScore.getDifficulty() + "｜");
+        }
+    }
+
     private void gameplay(Player player,String difficulty){
 
         if(!hasDia){
             long timeTaken = System.currentTimeMillis() - startTime;
             int secondsNumber = (int) (timeTaken / 1000);
             if(secondsNumber <= 10){
-                nowPlayerScore.setPoint(nowPlayerScore.getPoint() +500);
+                nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +500);
             }else if(secondsNumber <= 20){
-                nowPlayerScore.setPoint(nowPlayerScore.getPoint() +100);
+                nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +100);
             }
-            playerScoreList.add(nowPlayerScore);
+
             player.sendTitle("ゲーム終了！" + secondsNumber + "秒"
-                    ,difficulty + "モードでのあなたのスコアは" + nowPlayerScore.getPoint() + "点！");
-            PlayerScore score = new PlayerScore();
-            score.setPoint(nowPlayerScore.getPoint());
-            score.setTime(nowPlayerScore.getTime());
-            score.setDifficulty(difficulty);
-            playerScoreRepository.save(score);
-            gameReset(player);
+                    ,difficulty + "モードでのあなたのスコアは" + nowExecutingPlayer.getPoint() + "点！");
+
+            playerScoreData.insert(
+                new PlayerScore(nowExecutingPlayer.getPoint()
+                    ,secondsNumber
+                    ,difficulty));
+            scoreReset();
             return;
         }
-
         startTime = System.currentTimeMillis();
         Location location = player.getLocation();
         List<Block> chestList = arrangementChest(player, location);
         putOreRandom(chestList, difficulty);
-
     }
 
     private String getDifficulty(Player player, @NotNull String[] args) {
@@ -154,12 +142,8 @@ public class GameStartCommand extends BaseCommand implements Listener {
         for (int[] coords : chestIntLocation) {//チェストの座標リスト
             chestLocationList.add(new Location(player.getWorld(), coords[0], coords[1], coords[2]));
         }
-
         return arrayChest;
     }
-
-
-
     /**
      *チェストインベントリをクリックしたときにポイント加算
      * @param e チェストインベントリをクリックするイベント
@@ -178,27 +162,28 @@ public class GameStartCommand extends BaseCommand implements Listener {
         // クリックされたアイテムがチェスト内のものだったらポイント加算
         if (e.getClickedInventory().getType() == InventoryType.CHEST) {
 
-                switch (e.getCurrentItem().getType()) {
+            switch (e.getCurrentItem().getType()) {
                 case EMERALD -> {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() +100);
-                    player.sendMessage("やった！エメラルドをゲット！現在のポイントは" + nowPlayerScore.getPoint() + "点！");
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +100);
+                    player.sendMessage("やった！エメラルドをゲット！現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
                 }
                 case LAPIS_LAZULI -> {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() +50);
-                    player.sendMessage("ラピスラズリをゲット！現在のポイントは" + nowPlayerScore.getPoint() + "点！");
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +50);
+                    player.sendMessage("ラピスラズリをゲット！現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
                 }
                 case COAL -> {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() +20);
-                    player.sendMessage("石炭をゲット！現在のポイントは" + nowPlayerScore.getPoint() + "点！");
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +20);
+                    player.sendMessage("石炭をゲット！現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
                 }
                 case BONE -> {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() -5);
-                    player.sendMessage("残念、骨だった・・・現在のポイントは" + nowPlayerScore.getPoint() + "点！");
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() -5);
+                    player.sendMessage("残念、骨だった・・・現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
                 }
                 case DIAMOND -> {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() +100);
-                    player.sendMessage("ダイヤを見つけたよ！" );
+                    chestReset(player);
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +100);
                     hasDia = false;
+                    player.sendMessage("ダイヤを見つけたよ！" );
                     gameplay(player, difficulty);
                     return;
                 }
@@ -217,7 +202,8 @@ public class GameStartCommand extends BaseCommand implements Listener {
         Player player = e.getPlayer();
         if (!playerInGameArea(player) && hasChest) {
             player.sendMessage("エリア外にでました、ゲームを終了します");
-            gameReset(player);
+            chestReset(player);
+            scoreReset();
         }
     }
 
@@ -242,7 +228,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
      */
 
     private void putOreRandom(List<Block> emptyChest, String difficulty) {
-        nowPlayerScore.setDifficulty(difficulty);
+        nowExecutingPlayer.setDifficulty(difficulty);
 
 
         List<Material> oreList = new ArrayList<>();
@@ -251,23 +237,17 @@ public class GameStartCommand extends BaseCommand implements Listener {
         switch (difficulty) {
             case EASY -> {
                 IntStream.range(0, 8).mapToObj(j -> Material.LAPIS_LAZULI).forEach(oreList::add);
-
                 IntStream.range(0, 10).mapToObj(i -> Material.COAL).forEach(oreList::add);
-
                 IntStream.range(0, 5).mapToObj(i -> Material.BONE).forEach(oreList::add);
             }
             case NORMAL -> {
                 IntStream.range(0, 5).mapToObj(j -> Material.LAPIS_LAZULI).forEach(oreList::add);
-
                 IntStream.range(0, 9).mapToObj(i -> Material.COAL).forEach(oreList::add);
-
                 IntStream.range(0, 9).mapToObj(i -> Material.BONE).forEach(oreList::add);
             }
             case HARD -> {
                 IntStream.range(0, 2).mapToObj(j -> Material.LAPIS_LAZULI).forEach(oreList::add);
-
                 IntStream.range(0, 8).mapToObj(i -> Material.COAL).forEach(oreList::add);
-
                 IntStream.range(0, 13).mapToObj(i -> Material.BONE).forEach(oreList::add);
             }
         }
@@ -300,7 +280,8 @@ public class GameStartCommand extends BaseCommand implements Listener {
         Block block = e.getBlock();
         if (chestIntLocation != null && block.getType() == Material.CHEST && hasChest && chestLocationList.contains(e.getBlock().getLocation())) {
             player.sendMessage("チェストが破壊されました、ゲームを終了します");
-            gameReset(player);
+            chestReset(player);
+            scoreReset();
         }
     }
     /**
@@ -315,11 +296,11 @@ public class GameStartCommand extends BaseCommand implements Listener {
             // チェスト内のアイテムを調べる
             for (ItemStack item : chestInventory.getContents()) {
                 if (chestIntLocation != null && item != null && item.getType() == Material.BONE) {
-                    nowPlayerScore.setPoint(nowPlayerScore.getPoint() -20);
-                    player.sendMessage("骨をスルー、ペナルティ-20点！現在のポイントは" + nowPlayerScore.getPoint() + "点！");
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() -20);
+                    player.sendMessage("骨をスルー、ペナルティ-20点！現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
                 }else if (chestIntLocation != null && item != null && item.getType() == Material.DIAMOND) {
                     player.sendMessage("ダイヤをそっと戻し、ダイヤ探しを中断した");
-                    gameReset(player);
+                    chestReset(player);
                 }
             }
         }
@@ -328,19 +309,23 @@ public class GameStartCommand extends BaseCommand implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
-        gameReset(player);
+        chestReset(player);
+        scoreReset();
     }
+
     /**
-     *チェストやプレイヤースコアをリセット
-     * @param player　プレイヤー
+     *プレイヤースコアをリセット
      */
-    public void gameReset(Player player) {
+    public void scoreReset() {
+        nowExecutingPlayer = new ExecutingPlayer();
+    }
+
+    public void chestReset(Player player){
         if (chestIntLocation != null) {
             chestIntLocation.stream().map(coords -> new Location(player.getWorld(), coords[0], coords[1], coords[2]))
                     .map(Location::getBlock).forEach(chestBlock -> chestBlock.setType(Material.AIR));
+            hasChest = false;
         }
-        hasChest = false;
-        nowPlayerScore = new PlayerScore();
     }
 
     @Override

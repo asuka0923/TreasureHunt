@@ -1,0 +1,4 @@
+name: untitled
+version: '${version}'
+main: plugin.untitled.Untitled
+api-version: 1.19

@@ -4,7 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 /**
- * プレイヤーがゲームを開始した位置を取得し、チェスト配置エリアの決定
+ * プレイヤーがゲームを開始した位置を取得し、チェスト配置エリアを決定
  */
 public class ChestLocationDate {
     public static int areaStartX;

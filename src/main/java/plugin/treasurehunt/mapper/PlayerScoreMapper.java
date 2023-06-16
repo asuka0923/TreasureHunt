@@ -6,6 +6,10 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import plugin.treasurehunt.mapper.data.PlayerScore;
 
+/**
+ *データベースを操作するインターフェース
+ */
+
 public interface PlayerScoreMapper {
     @Select("select * from player_score;")
     List<PlayerScore> selectList();

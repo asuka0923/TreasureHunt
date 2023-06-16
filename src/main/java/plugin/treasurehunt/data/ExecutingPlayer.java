@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * ゲームのスコア情報を扱う
+ * ゲームプレイ中のスコア情報を扱う
  * 日時・難易度・スコア
  */
 @Getter

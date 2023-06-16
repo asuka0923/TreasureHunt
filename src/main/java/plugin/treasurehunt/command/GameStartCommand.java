@@ -76,7 +76,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
         for (int i = countdownTime; i > 0; i--) {
             player.sendTitle(String.valueOf(i),"ゲーム開始位置についてください");
             try {
-                Thread.sleep(1000); // 1秒待機
+                Thread.sleep(1000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -244,7 +244,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
             }
             nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() + pointToAdd);
             player.sendMessage(message);
-            //チェストのアイテムをクリックでエアーに（宝獲得演出）
+            //チェストのアイテムはクリックでエアーに
             e.getClickedInventory().setItem(e.getSlot(), new ItemStack(Material.AIR));
         }
     }

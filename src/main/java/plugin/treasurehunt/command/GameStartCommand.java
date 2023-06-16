@@ -1,9 +1,6 @@
 package plugin.treasurehunt.command;
 
-import java.util.Arrays;
-
 import org.bukkit.ChatColor;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
@@ -14,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDamageEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryType;
@@ -21,22 +19,19 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import plugin.treasurehunt.ChestLocationDate;
+import plugin.treasurehunt.data.ChestDetail;
+import plugin.treasurehunt.data.GameLocationDate;
 import plugin.treasurehunt.PlayerScoreData;
 import plugin.treasurehunt.data.ExecutingPlayer;
 import plugin.treasurehunt.mapper.data.PlayerScore;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.IntStream;
 import org.jetbrains.annotations.NotNull;
 
 public class GameStartCommand extends BaseCommand implements Listener {
-
-    public boolean hasChest;
+    public static boolean hasChest;
     public boolean hasDia;
-    public static long startTime;
+    public static long gameTimeCounter;
     public String difficulty;
     public static final String EASY ="easy";
     public static final String NORMAL ="normal";
@@ -44,11 +39,8 @@ public class GameStartCommand extends BaseCommand implements Listener {
     public static final String NONE ="none";
     public static final String LIST ="list";
     public static final String RULE ="rule";
-    private List<Location> chestLocationList;
-    private ChestLocationDate chestLocationDate;
-    private List<Material> oreList;
     private PlayerScoreData playerScoreData = new PlayerScoreData();
-    private ExecutingPlayer nowExecutingPlayer = new ExecutingPlayer();
+    public static ExecutingPlayer nowExecutingPlayer = new ExecutingPlayer();
 
     @Override
     public boolean onExecutePlayerCommand(Player player, @NotNull Command command, @NotNull String label, String[] args) {
@@ -56,15 +48,45 @@ public class GameStartCommand extends BaseCommand implements Listener {
             sendPlayerScoreList(player);
             return false;
         }else if(args.length == 1 && RULE.equals(args[0])){
-            gameRule(player);
+            sendGameRule(player);
             return false;
         }
         difficulty = getDifficulty(player,args);
         if (difficulty.equals(NONE)) return false;
         hasFlag();
+        scoreReset();
         startCountdown(player);
         gameplay(player, difficulty);
         return true;
+    }
+
+    /**
+     * コマンドの引数から難易度を取得
+     * @param player　プレイヤー
+     * @param args　コマンドの引数
+     * @return　難易度
+     */
+    private String getDifficulty(Player player, @NotNull String[] args) {
+        if(args.length == 1 && (EASY.equals(args[0]) || NORMAL.equals(args[0]) || HARD.equals(args[0]))){
+            return args[0];
+        }
+        player.sendMessage("コマンドと半角スペースに続いて、難易度を入力してください(easy,normal,hard)");
+        return NONE;
+    }
+
+    /**
+     * ゲーム開始（チェストの出現）と、ゲーム終了（チェストからダイヤがなくなる）のフラグ用
+     */
+    private void hasFlag() {
+        this.hasChest = true;
+        this.hasDia = true;
+    }
+
+    /**
+     * スコアのリセット
+     */
+    public void scoreReset() {
+        nowExecutingPlayer = new ExecutingPlayer();
     }
 
     /**
@@ -72,7 +94,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
      * @param player　プレイヤー
      */
     private void startCountdown(Player player) {
-        int countdownTime = 10;
+        int countdownTime = 5;
         for (int i = countdownTime; i > 0; i--) {
             player.sendTitle(String.valueOf(i),"ゲーム開始位置についてください");
             try {
@@ -93,100 +115,30 @@ public class GameStartCommand extends BaseCommand implements Listener {
     private void gameplay(Player player,String difficulty){
         //ゲーム終了
         if(!hasDia){
-            long timeTaken = System.currentTimeMillis() - startTime;
-            int secondsNumber = (int) (timeTaken / 1000);
-            if(secondsNumber <= 10){
-                nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +500);
-            }else if(secondsNumber <= 20){
+            int finishedTime = (int) ((System.currentTimeMillis() - gameTimeCounter) / 1000);
+                if(finishedTime <= 10){
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +500);
+                }else if(finishedTime <= 20){
                 nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() +100);
-            }
-            player.sendTitle("ゲーム終了！" + secondsNumber + "秒"
-                    ,difficulty + "モードでのあなたのスコアは"
-                    + nowExecutingPlayer.getPoint() + "点！");
+                }
+            player.sendTitle("ゲームクリア！",
+                    "あなたのスコアは"
+                            + nowExecutingPlayer.getPoint()
+                            + "点！",10,80,10);
+            player.sendMessage(ChatColor.GREEN + "ダイヤを見つけた！\n"
+                            + difficulty + "モードを"
+                            + finishedTime +  "秒でクリア！");
             playerScoreData.insert(
                 new PlayerScore(nowExecutingPlayer.getPoint()
-                    ,secondsNumber
+                    ,finishedTime
                     ,difficulty));
-            scoreReset();
             return;
         }
         //ゲーム開始
-        startTime = System.currentTimeMillis();
-        this.chestLocationDate = new ChestLocationDate(player);
-        List<Block> chestList = arrangementChest(player);
-        putOreRandom(chestList, difficulty);
-    }
-
-    /**
-     * プレイヤーの座標を取得し、チェストを等間隔で配置
-     * @param player　プレイヤー
-     * @return チェストの情報
-     */
-    public List<Block> arrangementChest(Player player) {
-
-        List<Block> arrayChest = new ArrayList<>();
-        chestLocationList = new ArrayList<>();
-
-        for (int x = ChestLocationDate.areaStartX; x <= ChestLocationDate.areaEndX; x += 2)
-            for (int z = ChestLocationDate.areaStartZ; z <= ChestLocationDate.areaEndZ; z += 2) {
-                Block block = player.getWorld().getBlockAt(x, ChestLocationDate.y, z);
-                block.setType(Material.AIR);//二重置き防止
-                block.setType(Material.CHEST);
-                arrayChest.add(block);
-                Location chestLocation = block.getLocation();
-                chestLocationList.add(chestLocation);
-            }
-        return arrayChest;
-    }
-
-    /**
-     * コマンドの引数から難易度を取得
-     * @param player　プレイヤー
-     * @param args　コマンドの引数
-     * @return　難易度
-     */
-    private String getDifficulty(Player player, @NotNull String[] args) {
-        if(args.length == 1 && (EASY.equals(args[0]) || NORMAL.equals(args[0]) || HARD.equals(args[0]))){
-            return args[0];
-        }
-        player.sendMessage("コマンドと半角スペースに続いて、難易度を入力してください(easy,normal,hard)");
-        return NONE;
-    }
-
-    /**
-     *チェストにランダムに鉱石を格納（レベル別）
-     * @param emptyChest　ゲームスタートで配置したチェストのリスト
-     */
-    private void putOreRandom(List<Block> emptyChest, String difficulty) {
-        nowExecutingPlayer.setDifficulty(difficulty);
-        oreList = new ArrayList<>();
-        oreList.addAll(Arrays.asList(Material.DIAMOND, Material.EMERALD));
-        switch (difficulty) {
-            case EASY -> {
-                addMaterialsToOreList(8, Material.LAPIS_LAZULI);
-                addMaterialsToOreList(10, Material.COAL);
-                addMaterialsToOreList(5, Material.BONE);
-            }
-            case NORMAL -> {
-                addMaterialsToOreList(5, Material.LAPIS_LAZULI);
-                addMaterialsToOreList(9, Material.COAL);
-                addMaterialsToOreList(9, Material.BONE);
-            }
-            case HARD -> {
-                addMaterialsToOreList(2, Material.LAPIS_LAZULI);
-                addMaterialsToOreList(8, Material.COAL);
-                addMaterialsToOreList(13, Material.BONE);
-            }
-        }
-        Collections.shuffle(oreList);
-
-        oreList.stream()
-            .takeWhile(ore -> emptyChest.size() != 0)
-            .map(ItemStack::new)
-            .forEach(oreStack -> {Block treasureChest = emptyChest.remove(0);
-            Inventory inventory = ((Chest) treasureChest.getState()).getInventory();
-            inventory.addItem(oreStack);
-        });
+        gameTimeCounter = System.currentTimeMillis();/*時間計測開始*/
+        GameLocationDate.chestLocation(player);/*ゲームエリア生成*/
+        ChestDetail.arrangementChest(player);/*チェスト配置*/
+        ChestDetail.putOreRandom(difficulty);/*鉱石格納*/
     }
 
     /**
@@ -197,85 +149,68 @@ public class GameStartCommand extends BaseCommand implements Listener {
     public void onInventoryClick(InventoryClickEvent e) {
         //　生成したチェスト以外は対象外
         Player player = (Player) e.getWhoClicked();
-        if (chestLocationList == null||
-            e.getCurrentItem() == null ||
-            !chestLocationList.contains(e.getInventory().getLocation())){
+        if (ChestDetail.chestLocationList == null ||
+                e.getCurrentItem() == null ||
+                !ChestDetail.chestLocationList.contains(e.getInventory().getLocation())) {
             return;
         }
         // チェストにアイテムを入れるのを禁止
         if (Objects.requireNonNull(
-            e.getClickedInventory()).getType() == InventoryType.PLAYER) {
+                e.getClickedInventory()).getType() == InventoryType.PLAYER) {
             player.sendMessage("アイテムを入れるのは禁止です");
             e.setCancelled(true);
         }
         // クリックされたアイテムがチェスト内のものだったらポイント加算
         if (e.getClickedInventory().getType() == InventoryType.CHEST) {
             Material itemType = e.getCurrentItem().getType();
-            int pointToAdd = 0;
+            int pointAdd = 0;
             String message = "";
+            String bonusMessage = "";
             switch (itemType) {
                 case DIAMOND:
-                    chestReset(player);
-                    message = "ダイヤを見つけたよ！おつかれさま！";
-                    pointToAdd = 100;
+                    ChestDetail.chestReset(player);
+                    nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() + 100);
                     this.hasDia = false;
                     gameplay(player, difficulty);
                     break;
                 case EMERALD:
-                    message = "やった！エメラルドをゲット！現在のポイントは"
-                        + nowExecutingPlayer.getPoint() + "点！";
-                    pointToAdd = 100;
+                    pointAdd = 50;
+                    message = "やった！エメラルドをゲット！";
                     break;
                 case LAPIS_LAZULI:
-                    message = "ラピスラズリをゲット！現在のポイントは"
-                        + nowExecutingPlayer.getPoint() + "点！";
-                    pointToAdd = 50;
+                    pointAdd = 20;
+                    message = "ラピスラズリをゲット！";
                     break;
                 case COAL:
-                    message = "石炭をゲット！現在のポイントは"
-                        + nowExecutingPlayer.getPoint() + "点！";
-                    pointToAdd = 20;
+                    pointAdd = 10;
+                    message = "石炭をゲット！";
                     break;
                 case BONE:
-                    message = "残念、骨だった・・・現在のポイントは"
-                        + nowExecutingPlayer.getPoint() + "点！";
-                    pointToAdd = -5;
+                    pointAdd = -5;
+                    message = "残念、骨だった・・・";
+                    break;
+                case GOLDEN_APPLE:
+                    long getApple = gameTimeCounter;
+                        if ((int) ((System.currentTimeMillis() - getApple) / 1000) <= 10) {
+                            nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() + 500);
+                            bonusMessage = "タイムボーナス500点！";
+                        }
+                    pointAdd = 100;
+                    message = "やった！金のりんごをゲット！";
                     break;
             }
-            nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() + pointToAdd);
-            player.sendMessage(message);
-            //チェストのアイテムはクリックでエアーに
-            e.getClickedInventory().setItem(e.getSlot(), new ItemStack(Material.AIR));
+                    if (hasDia == true) {
+                        nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() + pointAdd);
+                        player.sendMessage(message);
+                        player.sendMessage(ChatColor.YELLOW + bonusMessage);
+                        player.sendMessage("現在のポイントは"
+                                + nowExecutingPlayer.getPoint() + "点！");
+                    }
+                    //チェストのアイテムはクリックでエアーに
+                    e.getClickedInventory().setItem(e.getSlot(), new ItemStack(Material.AIR));
+            }
         }
-    }
 
-    /**
-     *それぞれの鉱石をレベル別で決められた数入れていく
-     * @param count　レベル別に決められた数
-     * @param material　鉱石の種類
-     */
-    private void addMaterialsToOreList(int count, Material material) {
-        IntStream.range(0, count).mapToObj(i -> material).forEach(oreList::add);
-    }
-
-    /**
-     * プレイヤーがゲームエリア内にいるか確認
-     * @param player　プレイヤー
-     * @return プレイヤーがゲームエリア内にいるか判定
-     */
-    public boolean playerInGameArea(Player player) {
-        Location playerLocation = player.getLocation();
-        int playerX = playerLocation.getBlockX();
-        int playerZ = playerLocation.getBlockZ();
-        if (chestLocationDate == null) {
-            return false;
-        }
-        return playerX >= (ChestLocationDate.areaStartX -4) &&
-                playerX <= (ChestLocationDate.areaEndX +4) &&
-                playerZ >= (ChestLocationDate.areaStartZ -7) &&
-                playerZ <= (ChestLocationDate.areaEndZ + 4);
-
-    }
 
     /**
      * プレイヤーがゲームエリア外に出た場合、ゲームを終了する
@@ -284,10 +219,9 @@ public class GameStartCommand extends BaseCommand implements Listener {
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent e) {
         Player player = e.getPlayer();
-        if (!playerInGameArea(player) && hasChest) {
+        if (!GameLocationDate.playerInGameArea(player) && hasChest) {
             player.sendMessage("エリア外にでました、ゲームを終了します");
-            chestReset(player);
-            scoreReset();
+            ChestDetail.chestReset(player);
         }
     }
 
@@ -298,7 +232,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
     @EventHandler
     public void onBlockDamage(BlockDamageEvent e) {
         if(hasDia &&
-            chestLocationList.contains(e.getBlock().getLocation())){
+            ChestDetail.chestLocationList .contains(e.getBlock().getLocation())){
             e.setCancelled(true);
         }
     }
@@ -311,13 +245,12 @@ public class GameStartCommand extends BaseCommand implements Listener {
     public void onBlockBreak(BlockBreakEvent e) {
         Player player = e.getPlayer();
         Block block = e.getBlock();
-        if (chestLocationList != null &&
+        if (ChestDetail.chestLocationList  != null &&
             block.getType() == Material.CHEST &&
             hasChest &&
-            chestLocationList.contains(e.getBlock().getLocation())) {
+            ChestDetail.chestLocationList .contains(e.getBlock().getLocation())) {
             player.sendMessage("チェストが破壊されました、ゲームを終了します");
-            chestReset(player);
-            scoreReset();
+            ChestDetail.chestReset(player);
         }
     }
 
@@ -326,58 +259,47 @@ public class GameStartCommand extends BaseCommand implements Listener {
      * @param e　チェストをしめる
      */
     @EventHandler
-    public void onChestClose(InventoryCloseEvent e) {
+    public void onInventoryClose(InventoryCloseEvent e) {
         if (e.getInventory().getHolder() instanceof Chest chest && hasChest) {
             Inventory chestInventory = chest.getInventory();
             Player player = (Player) e.getPlayer();
 
             for (ItemStack item : chestInventory.getContents()) {
-                if (chestLocationList != null &&
-                    item != null &&
-                    item.getType() == Material.BONE) {
+                if (ChestDetail.chestLocationList != null && item != null && item.getType() == Material.BONE) {
                     nowExecutingPlayer.setPoint(nowExecutingPlayer.getPoint() -20);
-                    player.sendMessage("骨をスルー、ペナルティ-20点！現在のポイントは"
-                        + nowExecutingPlayer.getPoint() + "点！");
+                    player.sendMessage(ChatColor.RED +"骨をスルー、ペナルティ-20点！");
+                    player.sendMessage("現在のポイントは" + nowExecutingPlayer.getPoint() + "点！");
 
-                }else if (chestLocationList != null &&
-                    item != null &&
-                    item.getType() == Material.DIAMOND) {
+                }else if (ChestDetail.chestLocationList != null && item != null && item.getType() == Material.DIAMOND) {
                     player.sendMessage("ダイヤをそっと戻し、ダイヤ探しを中断した");
-                    chestReset(player);
+                    ChestDetail.chestReset(player);
                 }
             }
         }
     }
 
-    /**
-     * ゲーム中にログアウトするとチェストをリセット（チェスト増殖対策）
-     * @param event　プレイヤーがログアウト
+    /*
+    チェストの繋ぎ置き禁止
      */
     @EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        Player player = event.getPlayer();
-        chestReset(player);
-        scoreReset();
-    }
+    public void onBlockPlace(BlockPlaceEvent e) {
+        Player player = e.getPlayer();
+        Block placedBlock = e.getBlockPlaced();
 
-    /**
-     * 出現させたチェストを削除する
-     * @param player　プレイヤー
-     */
-    public void chestReset(Player player){
-        if (chestLocationList != null) {
-            chestLocationList.stream()
-                .map(Location::getBlock)
-                .forEach(chestBlock -> chestBlock.setType(Material.AIR));
-            this.hasChest = false;
+        if (placedBlock.getState() instanceof Chest && GameLocationDate.playerInGameArea(player)) {
+            e.setCancelled(true);
+            player.sendMessage("ゲーム中はエリア内にチェストを置けません。");
         }
     }
 
     /**
-     * スコアのリセット
+     * ゲーム中にログアウトするとチェストをリセット（チェスト増殖対策）
+     * @param e　プレイヤーがログアウト
      */
-    public void scoreReset() {
-        nowExecutingPlayer = new ExecutingPlayer();
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent e) {
+        Player player = e.getPlayer();
+        ChestDetail.chestReset(player);
     }
 
     /**
@@ -400,24 +322,18 @@ public class GameStartCommand extends BaseCommand implements Listener {
      * ゲームのルール説明
      * @param player プレイヤー
      */
-    private static void gameRule(Player player) {
-        player.sendMessage("このゲームはコマンド入力でチェストが配置されます" +
-                "\nチェストの中の鉱石別でポイントが付与されます。" +
-                "\nレベルは、easy、normal、hardがあります。" +
-                "\n付与ポイントは、ダイヤ100点・エメラルド100点、" +
-                "\nラピスラズリ50点・石炭20点で、骨は-5点です。" +
-                "\nボーナスは、10秒以内クリアで500点、20秒以内クリアで100点です。" +
-                "\nダイヤを見つけるとゲーム終了になります。");
-        player.sendMessage(ChatColor.GREEN + "・何もない場所でプレイしてください。" +
-                "\n・チェストは、現在地から南方向に配置されます");
-    }
-
-    /**
-     * ゲーム開始（チェストの出現）と、ゲーム終了（チェストからダイヤがなくなる）のフラグ用
-     */
-    private void hasFlag() {
-        this.hasChest = true;
-        this.hasDia = true;
+    private void sendGameRule(Player player) {
+        player.sendMessage("このゲームはコマンド入力でチェストが配置されます\n" +
+                "チェストの中の鉱石別でポイントが付与されます。\n" +
+                "レベルは、easy、normal、hardがあります。\n" +
+                "付与ポイントは、ダイヤ100点・エメラルド50点、\n" +
+                "ラピスラズリ20点・石炭10点で、骨は-5点です。\n" +
+                "ボーナスは、10秒以内クリアで500点、20秒以内クリアで100点、\n" +
+                "10秒以内に金のリンゴを見つけると500点です。、\n" +
+                "ダイヤを見つけるとゲーム終了になります。\n");
+        player.sendMessage(ChatColor.GREEN +
+                "・何もない場所でプレイしてください。\n" +
+                "・チェストは、現在地から南方向に配置されます");
     }
 
     @Override

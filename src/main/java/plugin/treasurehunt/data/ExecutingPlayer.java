@@ -13,4 +13,5 @@ public class ExecutingPlayer {
   private int point;
   private int time;
   private String difficulty;
+
 }

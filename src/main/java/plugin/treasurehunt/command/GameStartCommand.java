@@ -67,9 +67,12 @@ public class GameStartCommand extends BaseCommand implements Listener {
         return true;
     }
 
+    /**
+     * ゲームスタート時のカウントダウン
+     * @param player　プレイヤー
+     */
     private void startCountdown(Player player) {
-        int countdownTime = 10; // カウントダウンの秒数
-        // カウントダウン実行
+        int countdownTime = 10;
         for (int i = countdownTime; i > 0; i--) {
             player.sendTitle(String.valueOf(i),"ゲーム開始位置についてください");
             try {
@@ -80,6 +83,7 @@ public class GameStartCommand extends BaseCommand implements Listener {
         }
         player.sendTitle("GO!!","ゲームスタート！");
     }
+
     /**
      * ゲームの実行と終了。周囲にチェストが現れ、鉱石がランダムで格納される。
      * ダイヤをゲットするとゲーム終了の処理をする。
@@ -392,6 +396,10 @@ public class GameStartCommand extends BaseCommand implements Listener {
         }
     }
 
+    /**
+     * ゲームのルール説明
+     * @param player プレイヤー
+     */
     private static void gameRule(Player player) {
         player.sendMessage("このゲームはコマンド入力でチェストが配置されます" +
                 "\nチェストの中の鉱石別でポイントが付与されます。" +

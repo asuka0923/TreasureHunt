@@ -2,9 +2,9 @@
 <project version="4">
   <component name="CodicPluginSettings">
     <option name="accessToken" value="EdYLoV58p5pCxpBbl0xiL52ealeJ93csyO" />
-    <option name="letterCaseConvention" value="JAVA:camel," />
+    <option name="letterCaseConvention" value="JAVA:lower underscore," />
     <option name="projectId" value="26533" />
-    <option name="quickLookHeight" value="216" />
-    <option name="quickLookWidth" value="373" />
+    <option name="quickLookHeight" value="220" />
+    <option name="quickLookWidth" value="377" />
   </component>
 </project>

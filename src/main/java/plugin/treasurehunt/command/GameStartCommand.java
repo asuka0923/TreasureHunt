@@ -316,7 +316,6 @@ public class GameStartCommand extends BaseCommand implements Listener {
                     + playerScore.getDifficulty() + "｜");
         }
     }
-
     /**
      * ゲームのルール説明
      * @param player プレイヤー

@@ -211,7 +211,6 @@ public class GameStartCommand extends BaseCommand implements Listener {
             }
         }
 
-
     /**
      * プレイヤーがゲームエリア外に出た場合、ゲームを終了する
      * @param e プレイヤーが移動をする
